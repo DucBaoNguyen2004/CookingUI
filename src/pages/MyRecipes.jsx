@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Clock, ChefHat, Trash2 } from 'lucide-react';
+import { Search, Clock, ChefHat, Trash2, Download, Upload } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
 import recipeService from '../services/recipeService';
+import recipeExportService from '../services/recipeExportService';
 
 const MyRecipes = () => {
     const [recipes, setRecipes] = useState([]);
@@ -12,6 +13,23 @@ const MyRecipes = () => {
     const [selectedCuisine, setSelectedCuisine] = useState('All');
     const [selectedDifficulty, setSelectedDifficulty] = useState('All');
     const [loading, setLoading] = useState(true);
+    const [isImporting, setIsImporting] = useState(false);
+    const [selectedIds, setSelectedIds] = useState([]);
+
+    const fetchRecipes = async () => {
+        try {
+            setLoading(true);
+            const result = await recipeService.getRecipes();
+            if (result.success) {
+                setRecipes(result.data.recipes);
+            }
+        } catch (error) {
+            console.error('Failed to fetch recipes:', error);
+            toast.error('Failed to load recipes');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const cuisines = ['All', 'Italian', 'Mexican', 'Indian', 'Chinese', 'Japanese', 'Thai', 'French', 'Mediterranean', 'American'];
     const difficulties = ['All', 'easy', 'medium', 'hard'];
@@ -60,6 +78,52 @@ const MyRecipes = () => {
         setFilteredRecipes(filtered);
     };
 
+    const handleToggleSelect = (id) => {
+        setSelectedIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAll = () => {
+        if (selectedIds.length === filteredRecipes.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(filteredRecipes.map(r => r.id));
+        }
+    };
+
+    const handleExport = async () => {
+        try {
+            await recipeExportService.exportRecipes(selectedIds);
+            toast.success('Recipes exported successfully');
+        } catch (error) {
+            console.error('Export error:', error);
+            toast.error('Failed to export recipes');
+        }
+    };
+
+    const handleImport = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            setIsImporting(true);
+            const result = await recipeExportService.importRecipes(file);
+            if (result.success) {
+                toast.success(result.message);
+                fetchRecipes(); // Refresh the list
+            } else {
+                toast.error(result.message || 'Failed to import recipes');
+            }
+        } catch (error) {
+            console.error('Import error:', error);
+            toast.error(error.response?.data?.message || 'An error occurred during import');
+        } finally {
+            setIsImporting(false);
+            e.target.value = ''; // Reset input
+        }
+    };
+
     const handleDelete = async (id) => {
         if (!confirm('Are you sure you want to delete this recipe?')) return;
 
@@ -83,9 +147,61 @@ const MyRecipes = () => {
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
-                <div className="mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900">My Recipes</h1>
-                    <p className="text-gray-600 mt-1">Your collection of saved recipes</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900">My Recipes</h1>
+                        <p className="text-gray-600 mt-1">Your collection of saved recipes</p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        {/* Hidden file input for import */}
+                        <input
+                            type="file"
+                            id="recipe-import"
+                            className="hidden"
+                            accept=".xlsx, .xls, .csv"
+                            onChange={handleImport}
+                            disabled={isImporting}
+                        />
+                        <button
+                            onClick={() => document.getElementById('recipe-import').click()}
+                            disabled={isImporting}
+                            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                        >
+                            <Upload className="w-4 h-4" />
+                            {isImporting ? 'Importing...' : 'Import'}
+                        </button>
+                        <button
+                            onClick={handleExport}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                            <Download className="w-4 h-4" />
+                            {selectedIds.length > 0 ? `Export (${selectedIds.length})` : 'Export All'}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Bulk Actions & Count */}
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={filteredRecipes.length > 0 && selectedIds.length === filteredRecipes.length}
+                                onChange={handleSelectAll}
+                                className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500"
+                            />
+                            <span className="text-sm font-medium text-gray-700">Select All</span>
+                        </label>
+                        {selectedIds.length > 0 && (
+                            <span className="text-sm text-emerald-600 font-medium">
+                                {selectedIds.length} recipe{selectedIds.length > 1 ? 's' : ''} selected
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-sm text-gray-600">
+                        Showing {filteredRecipes.length} of {recipes.length} recipes
+                    </p>
                 </div>
 
                 {/* Search and Filters */}
@@ -145,6 +261,8 @@ const MyRecipes = () => {
                             <RecipeCard
                                 key={recipe.id}
                                 recipe={recipe}
+                                isSelected={selectedIds.includes(recipe.id)}
+                                onToggleSelect={() => handleToggleSelect(recipe.id)}
                                 onDelete={handleDelete}
                             />
                         ))}
@@ -170,11 +288,20 @@ const MyRecipes = () => {
     );
 };
 
-const RecipeCard = ({ recipe, onDelete }) => {
+const RecipeCard = ({ recipe, isSelected, onToggleSelect, onDelete }) => {
     const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
 
     return (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-all group">
+        <div className={`bg-white rounded-xl border overflow-hidden hover:shadow-lg transition-all group relative ${isSelected ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-gray-200'}`}>
+            {/* Selection Checkbox */}
+            <div className="absolute top-3 left-3 z-10">
+                <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={onToggleSelect}
+                    className="w-5 h-5 text-emerald-600 border-gray-300 rounded-md focus:ring-emerald-500 bg-white/90 backdrop-blur-xs cursor-pointer shadow-sm"
+                />
+            </div>
             {/* Recipe Image Placeholder */}
             <div className="h-48 bg-linear-to-br from-emerald-100 to-emerald-200 flex items-center justify-center">
                 <ChefHat className="w-16 h-16 text-emerald-600" />
