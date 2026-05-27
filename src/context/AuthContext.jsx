@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { dummyUser } from '../data/dummyData';
+import authService from '../services/authService';
 
 const AuthContext = createContext(null);
 
@@ -13,27 +13,67 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Auto-login with dummy user for boilerplate
-        setUser(dummyUser);
+        const checkAuth = async () => {
+            const token = localStorage.getItem('token');
+            const storedUser = localStorage.getItem('user');
+
+            if (token && storedUser) {
+                try {
+                    setUser(JSON.parse(storedUser));
+                    // Optionally verify token with BE
+                    const result = await authService.getCurrentUser();
+                    if (result.success) {
+                        setUser(result.data.user);
+                        localStorage.setItem('user', JSON.stringify(result.data.user));
+                    }
+                } catch (error) {
+                    console.error('Auth check failed:', error);
+                    logout();
+                }
+            }
+            setLoading(false);
+        };
+
+        checkAuth();
     }, []);
 
     const login = async (email, password) => {
-        // UI-only login (no API call)
-        setUser(dummyUser);
-        return { success: true };
+        try {
+            const result = await authService.login(email, password);
+            if (result.success) {
+                setUser(result.data.user);
+                return { success: true };
+            }
+            return { success: false, message: result.message };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Login failed'
+            };
+        }
     };
 
     const register = async (name, email, password) => {
-        // UI-only register (no API call)
-        setUser({ ...dummyUser, name });
-        return { success: true };
+        try {
+            const result = await authService.register(name, email, password);
+            if (result.success) {
+                setUser(result.data.user);
+                return { success: true };
+            }
+            return { success: false, message: result.message };
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Registration failed'
+            };
+        }
     };
 
     const logout = () => {
-        // Just clear user (no API call)
+        authService.logout();
         setUser(null);
     };
 

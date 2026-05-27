@@ -3,7 +3,7 @@ import { Plus, Search, X, Calendar, AlertCircle } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import { dummyPantryItems, getExpiringItems } from '../data/dummyData';
+import pantryService from '../services/pantryService';
 
 const CATEGORIES = ['Vegetables', 'Fruits', 'Dairy', 'Meat', 'Grains', 'Spices', 'Other'];
 
@@ -14,11 +14,32 @@ const Pantry = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [expiringItems, setExpiringItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchPantryData = async () => {
+        try {
+            setLoading(true);
+            const [itemsRes, expiringRes] = await Promise.all([
+                pantryService.getPantryItems(),
+                pantryService.getExpiringSoon(7)
+            ]);
+
+            if (itemsRes.success) {
+                setItems(itemsRes.data.items);
+            }
+            if (expiringRes.success) {
+                setExpiringItems(expiringRes.data.items);
+            }
+        } catch (error) {
+            console.error('Failed to fetch pantry data:', error);
+            toast.error('Failed to load pantry items');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        // Load dummy data
-        setItems(dummyPantryItems);
-        setExpiringItems(getExpiringItems());
+        fetchPantryData();
     }, []);
 
     useEffect(() => {
@@ -41,12 +62,22 @@ const Pantry = () => {
         setFilteredItems(filtered);
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (!confirm('Are you sure you want to delete this item?')) return;
 
-        // UI-only delete (no API call)
-        setItems(items.filter(item => item.id !== id));
-        toast.success('Item deleted');
+        try {
+            const result = await pantryService.deletePantryItem(id);
+            if (result.success) {
+                setItems(items.filter(item => item.id !== id));
+                setExpiringItems(expiringItems.filter(item => item.id !== id));
+                toast.success('Item deleted');
+            } else {
+                toast.error(result.message || 'Failed to delete item');
+            }
+        } catch (error) {
+            console.error('Delete pantry item error:', error);
+            toast.error('An error occurred while deleting the item');
+        }
     };
 
     return (
@@ -119,7 +150,11 @@ const Pantry = () => {
                 </div>
 
                 {/* Items Grid */}
-                {filteredItems.length > 0 ? (
+                {loading ? (
+                    <div className="flex justify-center py-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+                    </div>
+                ) : filteredItems.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filteredItems.map(item => (
                             <PantryItemCard
@@ -141,9 +176,8 @@ const Pantry = () => {
             {showAddModal && (
                 <AddItemModal
                     onClose={() => setShowAddModal(false)}
-                    onSuccess={(newItem) => {
-                        setItems([...items, newItem]);
-                        setExpiringItems(getExpiringItems());
+                    onSuccess={() => {
+                        fetchPantryData();
                     }}
                 />
             )}
@@ -220,22 +254,29 @@ const AddItemModal = ({ onClose, onSuccess }) => {
     });
     const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-
-        // UI-only add (no API call)
-        const newItem = {
-            id: Date.now(),
-            user_id: 1,
-            ...formData,
-            quantity: parseFloat(formData.quantity),
-            expiry_date: formData.expiry_date || null,
-            created_at: new Date().toISOString()
-        };
-
-        toast.success('Item added to pantry');
-        onSuccess(newItem);
-        onClose();
+        try {
+            setLoading(true);
+            const payload = {
+                ...formData,
+                quantity: parseFloat(formData.quantity),
+                expiry_date: formData.expiry_date || null
+            };
+            const result = await pantryService.addPantryItem(payload);
+            if (result.success) {
+                toast.success('Item added to pantry');
+                onSuccess();
+                onClose();
+            } else {
+                toast.error(result.message || 'Failed to add item');
+            }
+        } catch (error) {
+            console.error('Add pantry item error:', error);
+            toast.error('An error occurred while adding the item');
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (

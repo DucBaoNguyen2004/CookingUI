@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, X, Check, Trash2 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
-import { dummyShoppingListItems } from '../data/dummyData';
+import shoppingListService from '../services/shoppingListService';
 
 const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Grains', 'Spices', 'Beverages', 'Other'];
 
@@ -10,14 +10,26 @@ const ShoppingList = () => {
     const [items, setItems] = useState([]);
     const [groupedItems, setGroupedItems] = useState({});
     const [showAddModal, setShowAddModal] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         loadShoppingList();
     }, []);
 
-    const loadShoppingList = () => {
-        setItems(dummyShoppingListItems);
-        organizeByCategory(dummyShoppingListItems);
+    const loadShoppingList = async () => {
+        try {
+            setLoading(true);
+            const result = await shoppingListService.getShoppingList();
+            if (result.success) {
+                setItems(result.data.items);
+                organizeByCategory(result.data.items);
+            }
+        } catch (error) {
+            console.error('Failed to load shopping list:', error);
+            toast.error('Failed to load shopping list');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const organizeByCategory = (itemsList) => {
@@ -32,34 +44,55 @@ const ShoppingList = () => {
         setGroupedItems(grouped);
     };
 
-    const handleToggleChecked = (id) => {
-        // UI-only toggle
-        const updatedItems = items.map(item =>
-            item.id === id ? { ...item, is_checked: !item.is_checked } : item
-        );
-        setItems(updatedItems);
-        organizeByCategory(updatedItems);
+    const handleToggleChecked = async (id) => {
+        try {
+            const result = await shoppingListService.toggleChecked(id);
+            if (result.success) {
+                const updatedItems = items.map(item =>
+                    item.id === id ? { ...item, is_checked: !item.is_checked } : item
+                );
+                setItems(updatedItems);
+                organizeByCategory(updatedItems);
+            }
+        } catch (error) {
+            console.error('Toggle item error:', error);
+            toast.error('Failed to update item');
+        }
     };
 
-    const handleDeleteItem = (id) => {
-        // UI-only delete
-        const updatedItems = items.filter(item => item.id !== id);
-        setItems(updatedItems);
-        organizeByCategory(updatedItems);
-        toast.success('Item removed');
+    const handleDeleteItem = async (id) => {
+        try {
+            const result = await shoppingListService.deleteItem(id);
+            if (result.success) {
+                const updatedItems = items.filter(item => item.id !== id);
+                setItems(updatedItems);
+                organizeByCategory(updatedItems);
+                toast.success('Item removed');
+            }
+        } catch (error) {
+            console.error('Delete item error:', error);
+            toast.error('Failed to remove item');
+        }
     };
 
-    const handleClearChecked = () => {
+    const handleClearChecked = async () => {
         if (!confirm('Remove all checked items?')) return;
 
-        // UI-only clear
-        const updatedItems = items.filter(item => !item.is_checked);
-        setItems(updatedItems);
-        organizeByCategory(updatedItems);
-        toast.success('Checked items cleared');
+        try {
+            const result = await shoppingListService.clearChecked();
+            if (result.success) {
+                const updatedItems = items.filter(item => !item.is_checked);
+                setItems(updatedItems);
+                organizeByCategory(updatedItems);
+                toast.success('Checked items cleared');
+            }
+        } catch (error) {
+            console.error('Clear checked items error:', error);
+            toast.error('Failed to clear checked items');
+        }
     };
 
-    const handleAddToPantry = () => {
+    const handleAddToPantry = async () => {
         const checkedCount = items.filter(item => item.is_checked).length;
         if (checkedCount === 0) {
             toast.error('No items checked');
@@ -68,11 +101,18 @@ const ShoppingList = () => {
 
         if (!confirm(`Add ${checkedCount} checked items to pantry?`)) return;
 
-        // UI-only add to pantry
-        const updatedItems = items.filter(item => !item.is_checked);
-        setItems(updatedItems);
-        organizeByCategory(updatedItems);
-        toast.success('Items added to pantry');
+        try {
+            const result = await shoppingListService.addCheckedToPantry();
+            if (result.success) {
+                const updatedItems = items.filter(item => !item.is_checked);
+                setItems(updatedItems);
+                organizeByCategory(updatedItems);
+                toast.success('Items added to pantry');
+            }
+        } catch (error) {
+            console.error('Add to pantry error:', error);
+            toast.error('Failed to add items to pantry');
+        }
     };
 
     const checkedCount = items.filter(item => item.is_checked).length;
@@ -123,7 +163,11 @@ const ShoppingList = () => {
                 )}
 
                 {/* Shopping List */}
-                {totalCount > 0 ? (
+                {loading ? (
+                    <div className="flex justify-center py-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+                    </div>
+                ) : totalCount > 0 ? (
                     <div className="space-y-6">
                         {Object.entries(groupedItems).map(([category, categoryItems]) => (
                             <div key={category} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -221,24 +265,28 @@ const AddItemModal = ({ onClose, onSuccess }) => {
     });
     const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-
-        // UI-only add
-        const newItem = {
-            id: Date.now(),
-            ingredient_name: formData.ingredient_name,
-            quantity: parseFloat(formData.quantity),
-            unit: formData.unit,
-            category: formData.category,
-            is_checked: false,
-            from_meal_plan: false,
-            created_at: new Date().toISOString()
-        };
-
-        toast.success('Item added to shopping list');
-        onSuccess(newItem);
-        onClose();
+        try {
+            setLoading(true);
+            const payload = {
+                ...formData,
+                quantity: parseFloat(formData.quantity)
+            };
+            const result = await shoppingListService.addItem(payload);
+            if (result.success) {
+                toast.success('Item added to shopping list');
+                onSuccess(result.data.item);
+                onClose();
+            } else {
+                toast.error(result.message || 'Failed to add item');
+            }
+        } catch (error) {
+            console.error('Add shopping item error:', error);
+            toast.error('An error occurred while adding the item');
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (

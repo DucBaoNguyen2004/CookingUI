@@ -3,7 +3,8 @@ import { Calendar as CalendarIcon, Plus, X, ChefHat } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
 import { format, startOfWeek, addDays } from 'date-fns';
-import { dummyMealPlans, dummyRecipes } from '../data/dummyData';
+import recipeService from '../services/recipeService';
+import mealPlanService from '../services/mealPlanService';
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner'];
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -14,44 +15,72 @@ const MealPlanner = () => {
     const [recipes, setRecipes] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        loadMealPlan();
-        setRecipes(dummyRecipes);
-    }, [weekStart]);
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+                const startDate = format(weekStart, 'yyyy-MM-dd');
+                const endDate = format(addDays(weekStart, 6), 'yyyy-MM-dd');
 
-    const loadMealPlan = () => {
-        // Organize dummy meals by date and meal type
-        const organized = {};
-        dummyMealPlans.forEach(meal => {
-            const dateKey = meal.meal_date;
-            if (!organized[dateKey]) {
-                organized[dateKey] = {};
+                const [recipesRes, mealPlanRes] = await Promise.all([
+                    recipeService.getRecipes(),
+                    mealPlanService.getMealPlans({ startDate, endDate })
+                ]);
+
+                if (recipesRes.success) {
+                    setRecipes(recipesRes.data.recipes);
+                }
+                if (mealPlanRes.success) {
+                    // Organize meals by date and meal type
+                    const organized = {};
+                    mealPlanRes.data.items.forEach(meal => {
+                        const dateKey = meal.meal_date;
+                        if (!organized[dateKey]) {
+                            organized[dateKey] = {};
+                        }
+                        organized[dateKey][meal.meal_type] = meal;
+                    });
+                    setMealPlan(organized);
+                }
+            } catch (error) {
+                console.error('Failed to fetch meal planner data:', error);
+                toast.error('Failed to load data');
+            } finally {
+                setLoading(false);
             }
-            organized[dateKey][meal.meal_type] = meal;
-        });
-        setMealPlan(organized);
-    };
+        };
+
+        fetchData();
+    }, [weekStart]);
 
     const handleAddMeal = (date, mealType) => {
         setSelectedSlot({ date, mealType });
         setShowAddModal(true);
     };
 
-    const handleRemoveMeal = (mealId) => {
+    const handleRemoveMeal = async (mealId) => {
         if (!confirm('Remove this meal from your plan?')) return;
 
-        // UI-only remove
-        const updatedPlan = { ...mealPlan };
-        Object.keys(updatedPlan).forEach(date => {
-            Object.keys(updatedPlan[date]).forEach(type => {
-                if (updatedPlan[date][type].id === mealId) {
-                    delete updatedPlan[date][type];
-                }
-            });
-        });
-        setMealPlan(updatedPlan);
-        toast.success('Meal removed');
+        try {
+            const result = await mealPlanService.deleteMealPlan(mealId);
+            if (result.success) {
+                const updatedPlan = { ...mealPlan };
+                Object.keys(updatedPlan).forEach(date => {
+                    Object.keys(updatedPlan[date]).forEach(type => {
+                        if (updatedPlan[date][type].id === mealId) {
+                            delete updatedPlan[date][type];
+                        }
+                    });
+                });
+                setMealPlan(updatedPlan);
+                toast.success('Meal removed');
+            }
+        } catch (error) {
+            console.error('Delete meal plan error:', error);
+            toast.error('Failed to remove meal');
+        }
     };
 
     const getDayMeals = (dayIndex) => {
@@ -224,26 +253,33 @@ const AddMealModal = ({ date, mealType, recipes, onClose, onSuccess }) => {
         recipe.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!selectedRecipe) {
             toast.error('Please select a recipe');
             return;
         }
 
-        // UI-only add
-        const recipe = recipes.find(r => r.id == selectedRecipe);
-        const newMeal = {
-            id: Date.now(),
-            recipe_id: selectedRecipe,
-            recipe_name: recipe.name,
-            meal_date: date,
-            meal_type: mealType,
-            created_at: new Date().toISOString()
-        };
-
-        toast.success('Meal added to plan');
-        onSuccess(newMeal);
+        try {
+            setLoading(true);
+            const payload = {
+                recipe_id: selectedRecipe,
+                meal_date: date,
+                meal_type: mealType
+            };
+            const result = await mealPlanService.addMealPlan(payload);
+            if (result.success) {
+                toast.success('Meal added to plan');
+                onSuccess(result.data.item);
+            } else {
+                toast.error(result.message || 'Failed to add meal');
+            }
+        } catch (error) {
+            console.error('Add meal plan error:', error);
+            toast.error('An error occurred while adding the meal');
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (

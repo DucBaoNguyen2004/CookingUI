@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Search, Clock, ChefHat, Trash2 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
-import { dummyRecipes } from '../data/dummyData';
+import recipeService from '../services/recipeService';
 
 const MyRecipes = () => {
     const [recipes, setRecipes] = useState([]);
@@ -11,13 +11,28 @@ const MyRecipes = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCuisine, setSelectedCuisine] = useState('All');
     const [selectedDifficulty, setSelectedDifficulty] = useState('All');
+    const [loading, setLoading] = useState(true);
 
     const cuisines = ['All', 'Italian', 'Mexican', 'Indian', 'Chinese', 'Japanese', 'Thai', 'French', 'Mediterranean', 'American'];
     const difficulties = ['All', 'easy', 'medium', 'hard'];
 
     useEffect(() => {
-        // Load dummy recipes
-        setRecipes(dummyRecipes);
+        const fetchRecipes = async () => {
+            try {
+                setLoading(true);
+                const result = await recipeService.getRecipes();
+                if (result.success) {
+                    setRecipes(result.data.recipes);
+                }
+            } catch (error) {
+                console.error('Failed to fetch recipes:', error);
+                toast.error('Failed to load recipes');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchRecipes();
     }, []);
 
     useEffect(() => {
@@ -45,12 +60,21 @@ const MyRecipes = () => {
         setFilteredRecipes(filtered);
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (!confirm('Are you sure you want to delete this recipe?')) return;
 
-        // UI-only delete
-        setRecipes(recipes.filter(recipe => recipe.id !== id));
-        toast.success('Recipe deleted');
+        try {
+            const result = await recipeService.deleteRecipe(id);
+            if (result.success) {
+                setRecipes(recipes.filter(recipe => recipe.id !== id));
+                toast.success('Recipe deleted');
+            } else {
+                toast.error(result.message || 'Failed to delete recipe');
+            }
+        } catch (error) {
+            console.error('Delete recipe error:', error);
+            toast.error('An error occurred while deleting the recipe');
+        }
     };
 
     return (

@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Clock, Users, ChefHat, ArrowLeft, Trash2, Calendar } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
-import { getRecipeById } from '../data/dummyData';
+import recipeService from '../services/recipeService';
 
 const RecipeDetail = () => {
     const { id } = useParams();
@@ -11,28 +11,48 @@ const RecipeDetail = () => {
     const [recipe, setRecipe] = useState(null);
     const [servings, setServings] = useState(4);
     const [checkedIngredients, setCheckedIngredients] = useState(new Set());
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         loadRecipe();
     }, [id]);
 
-    const loadRecipe = () => {
-        const recipeData = getRecipeById(parseInt(id));
-        if (recipeData) {
-            setRecipe(recipeData);
-            setServings(recipeData.servings || 4);
-        } else {
-            toast.error('Recipe not found');
+    const loadRecipe = async () => {
+        try {
+            setLoading(true);
+            const result = await recipeService.getRecipeById(id);
+            if (result.success) {
+                const recipeData = result.data.recipe;
+                setRecipe(recipeData);
+                setServings(recipeData.servings || 4);
+            } else {
+                toast.error(result.message || 'Recipe not found');
+                navigate('/recipes');
+            }
+        } catch (error) {
+            console.error('Failed to load recipe:', error);
+            toast.error('An error occurred while loading the recipe');
             navigate('/recipes');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (!confirm('Are you sure you want to delete this recipe?')) return;
 
-        // UI-only delete
-        toast.success('Recipe deleted');
-        navigate('/recipes');
+        try {
+            const result = await recipeService.deleteRecipe(id);
+            if (result.success) {
+                toast.success('Recipe deleted');
+                navigate('/recipes');
+            } else {
+                toast.error(result.message || 'Failed to delete recipe');
+            }
+        } catch (error) {
+            console.error('Delete recipe error:', error);
+            toast.error('An error occurred while deleting the recipe');
+        }
     };
 
     const toggleIngredient = (index) => {
@@ -48,6 +68,17 @@ const RecipeDetail = () => {
     const adjustQuantity = (originalQty, originalServings) => {
         return ((originalQty * servings) / originalServings).toFixed(2);
     };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gray-50">
+                <Navbar />
+                <div className="flex justify-center py-24">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+                </div>
+            </div>
+        );
+    }
 
     if (!recipe) {
         return null;

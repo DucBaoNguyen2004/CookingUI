@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { ChefHat, Sparkles, Plus, X, Clock, Users } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import toast from 'react-hot-toast';
-import { dummyPreferences, dummyGeneratedRecipe } from '../data/dummyData';
+import recipeService from '../services/recipeService';
+import api from '../services/api';
 
 const CUISINES = ['Any', 'Italian', 'Mexican', 'Indian', 'Chinese', 'Japanese', 'Thai', 'French', 'Mediterranean', 'American'];
 const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Gluten-Free', 'Dairy-Free', 'Keto', 'Paleo'];
@@ -27,16 +28,29 @@ const RecipeGenerator = () => {
 
     // Load user preferences on component mount
     useEffect(() => {
-        // Load dummy preferences
-        if (dummyPreferences.dietary_restrictions && dummyPreferences.dietary_restrictions.length > 0) {
-            setDietaryRestrictions(dummyPreferences.dietary_restrictions);
-        }
-        if (dummyPreferences.preferred_cuisines && dummyPreferences.preferred_cuisines.length > 0) {
-            setCuisineType(dummyPreferences.preferred_cuisines[0]);
-        }
-        if (dummyPreferences.default_servings) {
-            setServings(dummyPreferences.default_servings);
-        }
+        const fetchPreferences = async () => {
+            try {
+                const response = await api.get('/users/profile');
+                const user = response.data.data.user;
+
+                if (user.dietary_restrictions) {
+                    setDietaryRestrictions(JSON.parse(user.dietary_restrictions));
+                }
+                if (user.preferred_cuisines) {
+                    const cuisines = JSON.parse(user.preferred_cuisines);
+                    if (cuisines.length > 0) setCuisineType(cuisines[0]);
+                }
+                if (user.default_servings) {
+                    setServings(user.default_servings);
+                }
+            } catch (error) {
+                console.error('Failed to load user preferences:', error);
+            } finally {
+                setPreferencesLoaded(true);
+            }
+        };
+
+        fetchPreferences();
     }, []);
 
     const addIngredient = () => {
@@ -58,28 +72,56 @@ const RecipeGenerator = () => {
         }
     };
 
-    const handleGenerate = () => {
+    const handleGenerate = async () => {
         if (!usePantry && ingredients.length === 0) {
             toast.error('Please add at least one ingredient or use pantry items');
             return;
         }
 
-        setGenerating(true);
-        setGeneratedRecipe(null);
+        try {
+            setGenerating(true);
+            setGeneratedRecipe(null);
 
-        // Simulate API delay
-        setTimeout(() => {
-            setGeneratedRecipe(dummyGeneratedRecipe);
-            toast.success('Recipe generated successfully!');
+            const result = await recipeService.generateRecipe({
+                ingredients: usePantry ? [] : ingredients,
+                usePantry,
+                cuisineType,
+                dietaryRestrictions,
+                servings,
+                cookingTime
+            });
+
+            if (result.success) {
+                setGeneratedRecipe(result.data.recipe);
+                toast.success('Recipe generated successfully!');
+            } else {
+                toast.error(result.message || 'Failed to generate recipe');
+            }
+        } catch (error) {
+            console.error('Generate recipe error:', error);
+            toast.error('An error occurred while generating the recipe');
+        } finally {
             setGenerating(false);
-        }, 1500);
+        }
     };
 
-    const handleSaveRecipe = () => {
+    const handleSaveRecipe = async () => {
         if (!generatedRecipe) return;
 
-        // UI-only save (no API call)
-        toast.success('Recipe saved to your collection!');
+        try {
+            setSaving(true);
+            const result = await recipeService.saveRecipe(generatedRecipe);
+            if (result.success) {
+                toast.success('Recipe saved to your collection!');
+            } else {
+                toast.error(result.message || 'Failed to save recipe');
+            }
+        } catch (error) {
+            console.error('Save recipe error:', error);
+            toast.error('An error occurred while saving the recipe');
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (

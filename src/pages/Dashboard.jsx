@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { ChefHat, UtensilsCrossed, Calendar, ShoppingCart, TrendingUp, Clock } from 'lucide-react';
-import { dummyStats, getRecentRecipes, getUpcomingMeals } from '../data/dummyData';
+import recipeService from '../services/recipeService';
+import pantryService from '../services/pantryService';
+import mealPlanService from '../services/mealPlanService';
 
 const Dashboard = () => {
     const [stats, setStats] = useState({
@@ -12,16 +14,39 @@ const Dashboard = () => {
     });
     const [recentRecipes, setRecentRecipes] = useState([]);
     const [upcomingMeals, setUpcomingMeals] = useState([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Load dummy data
-        setStats({
-            totalRecipes: dummyStats.recipes.total_recipes,
-            pantryItems: dummyStats.pantry.total_items,
-            mealsThisWeek: dummyStats.mealPlans.this_week_count
-        });
-        setRecentRecipes(getRecentRecipes(5));
-        setUpcomingMeals(getUpcomingMeals(5));
+        const fetchDashboardData = async () => {
+            try {
+                setLoading(true);
+                const [recipeStats, pantryStats, recentRecipesRes, upcomingMealsRes] = await Promise.all([
+                    recipeService.getRecipeStats(),
+                    pantryService.getPantryStats(),
+                    recipeService.getRecentRecipes(5),
+                    mealPlanService.getMealPlans({ limit: 5 }) // Assuming meal plans for current week
+                ]);
+
+                if (recipeStats.success) {
+                    setStats(prev => ({ ...prev, totalRecipes: recipeStats.data.stats.total_recipes }));
+                }
+                if (pantryStats.success) {
+                    setStats(prev => ({ ...prev, pantryItems: pantryStats.data.stats.total_items }));
+                }
+                if (recentRecipesRes.success) {
+                    setRecentRecipes(recentRecipesRes.data.recipes);
+                }
+                if (upcomingMealsRes.success) {
+                    setUpcomingMeals(upcomingMealsRes.data.items);
+                }
+            } catch (error) {
+                console.error('Failed to fetch dashboard data:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchDashboardData();
     }, []);
 
     return (
