@@ -82,7 +82,7 @@ const Login = () => {
 
                         {/* Forgot Password */}
                         <div className="flex items-center justify-end">
-                            <Link to="/reset-password" className="text-sm text-emerald-600 hover:text-emerald-700 font-medium">
+                            <Link to="/request-password-reset" className="text-sm text-emerald-600 hover:text-emerald-700 font-medium">
                                 Forgot password?
                             </Link>
                         </div>
